@@ -12,7 +12,7 @@ Functions:
 Usage:
     Convert an image to TIFF format:
     
-        convert_to_tiff(input_path, output_path, subresolutions=7, grid_size=1)
+        convert_to_tiff(read_path, write_path, subresolutions=7, grid_size=1)
 """
 
 import tifffile
@@ -20,6 +20,7 @@ import os
 import typing
 import subprocess
 from image_readers import get_image_reader
+import math
 
 
 def convert_to_tiff(
@@ -27,6 +28,7 @@ def convert_to_tiff(
     write_path: typing.Union[str, os.PathLike],
     subresolutions: int = 4,
     grid_size: int = 1,
+    max_workers: int = None,
     **kwargs,
 ):
     """
@@ -36,25 +38,31 @@ def convert_to_tiff(
     Parameters
     ----------
     read_path : typing.Union[str, os.PathLike]
-        The path to the input image.
+        The path to the input image
     write_path : typing.Union[str, os.PathLike]
-        The path to save the output TIFF file.
+        The path to save the output TIFF file
     subresolutions : int, optional
-        The number of subresolutions to create, by default 4.
+        The number of subresolutions to create, by default 4
     grid_size : int, optional
-        Grid size for processing the image, by default 1.
+        Grid size for writing the image, by default 1. Final tile size used is
+        grid_size * 1024
+    max_workers: int, optional
+        Number of cores to use when compressing image, by default 90% of
+        available cores
     """
-    tile_size = 1024 * grid_size
     with get_image_reader(read_path) as reader:
-        axes = 'TCZYX'
-        shape = reader.shape
         with tifffile.TiffWriter(write_path, bigtiff=True) as writer:
-            n_cpu = int(subprocess.run('nproc', capture_output=True).stdout)
+            # Setup
+            tile_size = 1024 * grid_size
+            shape = reader.shape
+            if max_workers is None:
+                n_cpu = subprocess.run('nproc', capture_output=True).stdout
+                max_workers = math.floor(int(n_cpu) * 0.9)
             kwargs = dict(
                 tile=(tile_size, tile_size),
                 dtype=reader.dtype,
                 compression='jpeg2000',
-                maxworkers=int(n_cpu * 0.9),
+                maxworkers=max_workers,
             )
             # Oth level
             writer.write(
@@ -66,9 +74,9 @@ def convert_to_tiff(
                 **kwargs,
             )
             # Pyramidal sub-levels
-            for n in range(1, subresolutions+1):
+            for n in range(1, subresolutions + 1):
                 s = 2 ** -n
-                sub_shape = shape[:-2] + tuple(int(d*s) for d in shape[-2:])
+                sub_shape = shape[:-2] + tuple(int(d * s) for d in shape[-2:])
                 writer.write(
                     reader.get_tiles(tile_size, s=s),
                     shape=sub_shape,
