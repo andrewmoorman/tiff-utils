@@ -38,7 +38,7 @@ import zarr
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from ome_types.model import OME, Image, Pixels, Channel, TiffData, UnitsLength
-from ome_types import to_xml, from_xml
+from ome_types import from_xml
 
 
 _valid_image_formats = dict()
@@ -65,7 +65,8 @@ def _register_image_format(file_type):
         return fn
     return decorator
 
-
+# TODO: Add 'resize' instance method using Dask to resize large arrays without
+# exceeding memory limitations
 # Abstract creator class
 class AbstractReader(ABC):
     """
@@ -305,11 +306,11 @@ class AbstractReader(ABC):
                         name=name,
                     ) for i, name in enumerate(self.channels)
                 ],
-                tiff_data_blocks=[TiffData(plane_count=1)]
+                tiff_data_blocks=[TiffData(plane_count=self.C*self.Z*self.T)]
             )
         )
         ome.images.append(ome_image)
-        return to_xml(ome).replace('XYZCT', 'TCZYX')
+        return ome
 
 
 class ContextManagerNotSetError(Exception):

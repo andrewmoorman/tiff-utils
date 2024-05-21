@@ -21,6 +21,9 @@ import typing
 import subprocess
 from image_readers import get_image_reader
 import math
+import warnings
+from ome_types import to_xml
+from ome_types.model import TiffData
 
 
 def convert_to_tiff(
@@ -50,8 +53,14 @@ def convert_to_tiff(
         Number of cores to use when compressing image, by default 90% of
         available cores
     """
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            category=UserWarning,
+            module='tifffile.tifffile.TiffWriter',
+        )
     with get_image_reader(read_path) as reader:
-        with tifffile.TiffWriter(write_path, bigtiff=True) as writer:
+        with tifffile.TiffWriter(write_path, bigtiff=True, ome=True) as writer:
             # Setup
             tile_size = 1024 * grid_size
             shape = reader.shape
@@ -63,14 +72,13 @@ def convert_to_tiff(
                 dtype=reader.dtype,
                 compression='jpeg2000',
                 maxworkers=max_workers,
+                metadata={'axes': 'TCZYX'},
             )
             # Oth level
             writer.write(
                 reader.get_tiles(tile_size),
                 shape=shape,
                 subifds=subresolutions,
-                description=str.encode(reader.ome_metadata),
-                metadata={'axes': 'TCZYX'},
                 **kwargs,
             )
             # Pyramidal sub-levels
@@ -80,6 +88,9 @@ def convert_to_tiff(
                 writer.write(
                     reader.get_tiles(tile_size, s=s),
                     shape=sub_shape,
-                    subfiletype=1,
+                    subfiletype=0,
                     **kwargs,
                 )
+        # Write metadata
+        ome = reader.ome_metadata
+        tifffile.tiffcomment(write_path, str.encode(to_xml(ome)))
