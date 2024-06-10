@@ -39,6 +39,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from ome_types.model import OME, Image, Pixels, Channel, TiffData, UnitsLength
 from ome_types import from_xml
+from typing import Union, Literal
 
 
 _valid_image_formats = dict()
@@ -111,10 +112,13 @@ class AbstractReader(ABC):
         pass
 
     @abstractmethod
-    def read(self, level, T, C, Z, Y, X) -> np.ndarray:
+    def read(self, level, T, C, Z, Y, X, pixels) -> np.ndarray:
         """
         Reads an ndarray or ndarray-like object from self.file_path given
         slicing parameters defined in kwargs
+
+        If 'pixels' is True, coordinates are assumed to be in image/pixel
+        space, otherwise in physical space
 
         Returns
         -------
@@ -225,7 +229,7 @@ class AbstractReader(ABC):
     def physical_size_x(self) -> typing.Union[tuple[float, UnitsLength], None]:
         return self._get_physical_size('X')
 
-    def get_tiles(self, tile_size, s=1):
+    def get_tiles(self, tile_size: int, s: int=1):
         """
         Generate tiles of the image for writing to disk.
 
@@ -265,6 +269,64 @@ class AbstractReader(ABC):
                     )
                 pbar.update(1)
                 yield img
+
+    def convert_slice(
+        self,
+        value: typing.Union[int, tuple[int, int], slice],
+        axis: str,
+    ):
+        """
+        Converts a given value to pixel coordinates based on the specified axis
+
+        This method converts an integer, a tuple of integers, or a slice object to
+        pixel coordinates using the units per pixel (upp) of the specified axis
+
+        Parameters
+        ----------
+        value : typing.Union[int, tuple[int, int], slice]
+            The value to be converted to pixel coordinates. It can be an integer, 
+            a tuple of two integers, or a slice object
+        axis : str
+            The axis for which the conversion is to be done. It should be either
+            'x' or 'y'
+
+        Returns
+        -------
+        typing.Union[int, tuple[int, int], slice, None]
+            The converted value in pixel coordinates
+
+        Raises
+        ------
+        ValueError
+            If the axis is not 'x' or 'y', or if the value is not an integer, tuple, 
+            or slice, a ValueError is raised.
+        """
+        # Determine units per pixel based on the specified axis
+        if axis.lower() == 'x':
+            upp = self.physical_size_x[0]
+        elif axis.lower() == 'y':
+            upp = self.physical_size_y[0]
+        else:
+            msg = f"Parameter 'axis' must be one of X/x or Y/y, not {axis}"
+            raise ValueError(msg)
+        # Convert value to pixel coordinates
+        if value is None:
+            return value
+        elif isinstance(value, int):
+            return int(value / upp)
+        elif isinstance(value, tuple):
+            return int(value[0] / upp), int(value[1] / upp)
+        elif isinstance(value, slice):
+            fn = lambda v: int(v / upp) if v is not None else v
+            return slice(
+                fn(value.start),
+                fn(value.stop),
+                fn(value.step),
+            )
+        # Raise ValueError if value type is not supported
+        else:
+            msg = f'Unable to convert {value} to pixel coordinates'
+            raise ValueError(msg)
 
     @property
     def ome_metadata(self) -> str:
@@ -357,10 +419,11 @@ class TiffReader(AbstractReader):
         happen in the same line.
         """
         if self.level is not None:
-            with tifffile.TiffFile(self.file_path, mode='r') as tf:
+            with tifffile.TiffFile(
+                self.file_path,
+                is_ome=False if self._is_multifile else None,
+            ) as tf:
                 n_levels = len(tf.series[0].levels)
-                tf.series[0].dims
-                
             if self.level >= n_levels:
                 msg = (
                     f"Cannot open image: Level {self.level} not found in "
@@ -370,7 +433,8 @@ class TiffReader(AbstractReader):
         self._store = tifffile.imread(
             self.file_path,
             aszarr=True,
-            level=self.level
+            level=self.level,
+            is_ome=False if self._is_multifile else None,
         )
         return self
 
@@ -386,10 +450,16 @@ class TiffReader(AbstractReader):
         Z: int = None,
         Y: typing.Union[int, tuple[int, int], slice] = None,
         X: typing.Union[int, tuple[int, int], slice] = None,
+        pixels: bool = True,
     ):
         # Error #1: Zarr store not yet set up
         if self._store is None:
             raise ContextManagerNotSetError()
+
+        # Optionally convert coordinates from physical space to image space
+        if not pixels:
+            X = self.convert_slice(X, axis='x')
+            Y = self.convert_slice(Y, axis='y')
 
         # Filter slices
         kwargs = dict(zip(range(5), [T,C,Z,Y,X]))
@@ -410,7 +480,10 @@ class TiffReader(AbstractReader):
         kwargs = dict(kwargs)
 
         # Error #2: Empty axis sliced incorrectly
-        with tifffile.TiffFile(self.file_path, mode='r') as tf:
+        with tifffile.TiffFile(
+            self.file_path,
+            is_ome=False if self._is_multifile else None,
+        ) as tf:
             axes = tf.series[0].levels[self.level].axes
             axes = axes.replace('S', 'C')
         extra = set(kwargs.keys()).difference(axes)
@@ -431,7 +504,10 @@ class TiffReader(AbstractReader):
     @property
     def shape(self):
         shape = {'T': 1, 'C': 1, 'Z': 1}  # default shape is 1
-        with tifffile.TiffFile(self.file_path, mode='r') as tf:
+        with tifffile.TiffFile(
+            self.file_path,
+            is_ome=False if self._is_multifile else None,
+        ) as tf:
             level = tf.series[0].levels[self.level]
             shape.update(dict(zip(
                 level.axes.replace('S', 'C'),
@@ -441,13 +517,19 @@ class TiffReader(AbstractReader):
 
     @property
     def dtype(self):
-        with tifffile.TiffFile(self.file_path, mode='r') as tf:
+        with tifffile.TiffFile(
+            self.file_path,
+            is_ome=False if self._is_multifile else None,
+        ) as tf:
             dtype = tf.series[0].levels[self.level].dtype
         return dtype
 
     @property
     def channels(self):
-        with tifffile.TiffFile(self.file_path) as tf:
+        with tifffile.TiffFile(
+            self.file_path,
+            is_ome=False if self._is_multifile else None,
+        ) as tf:
             if tf.is_ome:
                 ome_xml = from_xml(tf.ome_metadata)
                 channels = ome_xml.images[0].pixels.channels
@@ -456,7 +538,10 @@ class TiffReader(AbstractReader):
                 return ['' for _ in range(self.C)]
 
     def _get_physical_size(self, dim):
-        with tifffile.TiffFile(self.file_path) as tf:
+        with tifffile.TiffFile(
+            self.file_path,
+            #is_ome=False if self._is_multifile else None,
+        ) as tf:
             if tf.is_ome:
                 ome_xml = from_xml(tf.ome_metadata)
                 key = f'physical_size_{dim.lower()}'
@@ -466,6 +551,24 @@ class TiffReader(AbstractReader):
                 except AttributeError:
                     pass
         return (None, UnitsLength.MICROMETER)
+
+    @property
+    def _is_multifile(self) -> Union[bool, None]:
+        """
+        Whether file path opens a multi-file TIFF
+
+        Returns
+        -------
+        bool
+            True file is multi-file TIFF else False
+        """
+        with tifffile.TiffFile(self.file_path) as tf:
+            if tf.is_ome:
+                ome = from_xml(tf.ome_metadata)
+                n_blocks = len(ome.images[0].pixels.tiff_data_blocks)
+                return n_blocks > 1
+            else:
+                return False
 
 
 class BioFormatsReader(AbstractReader):
@@ -506,6 +609,7 @@ class BioFormatsReader(AbstractReader):
         Z: typing.Union[int, tuple[int, int], slice] = None,
         Y: typing.Union[int, tuple[int, int], slice] = None,
         X: typing.Union[int, tuple[int, int], slice] = None,
+        pixels: bool = True,
     ):
         # Error: Reader not set up
         if self._reader is None:
@@ -518,6 +622,10 @@ class BioFormatsReader(AbstractReader):
             lambda a: (a.start, a.stop) if isinstance(a, slice) else a,
             [X, Y, Z, C, T],
         )
+        # Optionally convert coordinates from physical space to image space
+        if not pixels:
+            X = self.convert_slice(X, axis='x')
+            Y = self.convert_slice(Y, axis='y')
         return self._reader.read(X=X, Y=Y, Z=Z, C=C, T=T)
 
     @property
