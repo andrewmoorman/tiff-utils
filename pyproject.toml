@@ -15,7 +15,10 @@ numpy = "^1.26.4"
 scipy = "^1.13.0"
 tqdm = "^4.66.2"
 zarr = "^2.17.2"
+click = "^8.0.3"
 
+[tool.poetry.scripts]
+tiff-utils = "tiff_utils.cli:cli"
 
 [build-system]
 requires = ["poetry-core"]
