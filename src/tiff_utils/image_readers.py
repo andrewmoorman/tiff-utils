@@ -278,14 +278,14 @@ class AbstractReader(ABC):
         """
         Converts a given value to pixel coordinates based on the specified axis
 
-        This method converts an integer, a tuple of integers, or a slice object to
-        pixel coordinates using the units per pixel (upp) of the specified axis
+        This method converts an integer, a tuple of integers, or a slice object 
+        to pixel coordinates using the units per pixel of the specified axis
 
         Parameters
         ----------
         value : typing.Union[int, tuple[int, int], slice]
-            The value to be converted to pixel coordinates. It can be an integer, 
-            a tuple of two integers, or a slice object
+            The value to be converted to pixel coordinates. It can be an int, a
+            tuple of two integers, or a slice object
         axis : str
             The axis for which the conversion is to be done. It should be either
             'x' or 'y'
@@ -298,8 +298,8 @@ class AbstractReader(ABC):
         Raises
         ------
         ValueError
-            If the axis is not 'x' or 'y', or if the value is not an integer, tuple, 
-            or slice, a ValueError is raised.
+            If the axis is not 'x' or 'y', or if the value is not an integer,
+            tuple, or slice, a ValueError is raised.
         """
         # Determine units per pixel based on the specified axis
         if axis.lower() == 'x':
