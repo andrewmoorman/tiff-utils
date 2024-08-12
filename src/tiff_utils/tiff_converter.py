@@ -11,7 +11,7 @@ Functions:
 
 Usage:
     Convert an image to TIFF format:
-    
+
         convert_to_tiff(read_path, write_path, subresolutions=7, grid_size=1)
 """
 
@@ -19,7 +19,7 @@ import tifffile
 import os
 import typing
 import subprocess
-from image_readers import get_image_reader
+from tiff_utils.image_readers import get_image_reader
 import math
 import warnings
 from ome_types import to_xml

@@ -5,6 +5,11 @@ import numpy as np
 import re
 
 
+def count_levels(path):
+    """Count the number of pyramidal levels in a TIFF image"""
+    with tifffile.TiffFile(path, mode='r') as f:
+        return len(f.series[0].levels)
+
 def select_tiff_level(
     file_path: typing.Union[str, os.PathLike],
     max_mem: typing.Union[int, str] = None,
@@ -21,7 +26,7 @@ def select_tiff_level(
     and one of B, KB, MB, GB, TB units.
 
     The 'max_shape' argument can be a tuple of integers. If the length of
-    'max_shape' is less than the total number of dimensions or the number of 
+    'max_shape' is less than the total number of dimensions or the number of
     dimensions requested, subset using the shapes of the LAST n dimensions.
 
     Optionally, limit request to a subset of dimensions.
@@ -31,7 +36,7 @@ def select_tiff_level(
     file_path : typing.Union[str, os.PathLike]
         The path to the TIFF image
     max_mem : typing.Union[int, str], optional
-        Maximum size in memory of the level to return. Either an integer 
+        Maximum size in memory of the level to return. Either an integer
         representing the number of bytes or numerical value and unit (str)
         are accepted, by default None
     max_shape : tuple[int], optional
@@ -47,7 +52,7 @@ def select_tiff_level(
     Raises
     ------
     ValueError
-        If no level meets the requirements, or if incorrect arguments were 
+        If no level meets the requirements, or if incorrect arguments were
         provided
     """
     # Internal helper
